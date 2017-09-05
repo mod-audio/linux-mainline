@@ -48,6 +48,9 @@
 #define SUN4I_I2S_FMT0_FMT_I2S				(0 << 0)
 
 #define SUN4I_I2S_FMT1_REG		0x08
+#define SUN4I_I2S_FMT1_REG_SEXT_MASK		BIT(8)
+#define SUN4I_I2S_FMT1_REG_SEXT(sext)			((sext) << 8)
+
 #define SUN4I_I2S_FIFO_TX_REG		0x0c
 #define SUN4I_I2S_FIFO_RX_REG		0x10
 
@@ -104,6 +107,9 @@
 #define SUN8I_I2S_FMT0_BCLK_POLARITY_MASK	BIT(7)
 #define SUN8I_I2S_FMT0_BCLK_POLARITY_INVERTED		(1 << 7)
 #define SUN8I_I2S_FMT0_BCLK_POLARITY_NORMAL		(0 << 7)
+
+#define SUN8I_I2S_FMT1_REG_SEXT_MASK		GENMASK(5,4)
+#define SUN8I_I2S_FMT1_REG_SEXT(sext)			((sext) << 4)
 
 #define SUN8I_I2S_INT_STA_REG		0x0c
 #define SUN8I_I2S_FIFO_TX_REG		0x20
@@ -165,6 +171,7 @@ struct sun4i_i2s_quirks {
 	int	(*set_chan_cfg)(const struct sun4i_i2s *,
 				const struct snd_pcm_hw_params *);
 	int	(*set_fmt)(const struct sun4i_i2s *, unsigned int);
+	void	(*set_fmt_sext)(const struct sun4i_i2s *, unsigned int);
 };
 
 struct sun4i_i2s {
@@ -361,6 +368,10 @@ static int sun4i_i2s_set_clk_rate(struct snd_soc_dai *dai,
 		     SUN4I_I2S_CLK_DIV_MCLK(mclk_div));
 
 	regmap_field_write(i2s->field_clkdiv_mclk_en, 1);
+
+
+	/* Set sign extension to pad out LSB with 0 */
+	i2s->variant->set_fmt_sext(i2s, 0);
 
 	return 0;
 }
@@ -700,6 +711,22 @@ static int sun8i_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 			   val);
 
 	return 0;
+}
+
+static void sun4i_i2s_set_fmt_sext(const struct sun4i_i2s *i2s,
+				   unsigned int sext)
+{
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT1_REG,
+			   SUN4I_I2S_FMT1_REG_SEXT_MASK,
+			   SUN4I_I2S_FMT1_REG_SEXT(sext));
+}
+
+static void sun8i_i2s_set_fmt_sext(const struct sun4i_i2s *i2s,
+				   unsigned int sext)
+{
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT1_REG,
+			   SUN8I_I2S_FMT1_REG_SEXT_MASK,
+			   SUN8I_I2S_FMT1_REG_SEXT(sext));
 }
 
 static int sun4i_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
@@ -1092,6 +1119,7 @@ static const struct sun4i_i2s_quirks sun4i_a10_i2s_quirks = {
 	.get_wss		= sun4i_i2s_get_wss,
 	.set_chan_cfg		= sun4i_i2s_set_chan_cfg,
 	.set_fmt		= sun4i_i2s_set_soc_fmt,
+	.set_fmt_sext		= sun4i_i2s_set_fmt_sext,
 };
 
 static const struct sun4i_i2s_quirks sun6i_a31_i2s_quirks = {
@@ -1110,6 +1138,7 @@ static const struct sun4i_i2s_quirks sun6i_a31_i2s_quirks = {
 	.get_wss		= sun4i_i2s_get_wss,
 	.set_chan_cfg		= sun4i_i2s_set_chan_cfg,
 	.set_fmt		= sun4i_i2s_set_soc_fmt,
+	.set_fmt_sext		= sun4i_i2s_set_fmt_sext,
 };
 
 /*
@@ -1133,6 +1162,7 @@ static const struct sun4i_i2s_quirks sun8i_a83t_i2s_quirks = {
 	.get_wss		= sun4i_i2s_get_wss,
 	.set_chan_cfg		= sun4i_i2s_set_chan_cfg,
 	.set_fmt		= sun4i_i2s_set_soc_fmt,
+	.set_fmt_sext		= sun4i_i2s_set_fmt_sext,
 };
 
 static const struct sun4i_i2s_quirks sun8i_h3_i2s_quirks = {
@@ -1151,6 +1181,7 @@ static const struct sun4i_i2s_quirks sun8i_h3_i2s_quirks = {
 	.get_wss		= sun8i_i2s_get_sr_wss,
 	.set_chan_cfg		= sun8i_i2s_set_chan_cfg,
 	.set_fmt		= sun8i_i2s_set_soc_fmt,
+	.set_fmt_sext		= sun8i_i2s_set_fmt_sext,
 };
 
 static const struct sun4i_i2s_quirks sun50i_a64_codec_i2s_quirks = {
@@ -1169,6 +1200,7 @@ static const struct sun4i_i2s_quirks sun50i_a64_codec_i2s_quirks = {
 	.get_wss		= sun4i_i2s_get_wss,
 	.set_chan_cfg		= sun4i_i2s_set_chan_cfg,
 	.set_fmt		= sun4i_i2s_set_soc_fmt,
+	.set_fmt_sext		= sun4i_i2s_set_fmt_sext,
 };
 
 static int sun4i_i2s_init_regmap_fields(struct device *dev,
