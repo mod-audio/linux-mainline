@@ -30,6 +30,8 @@
 #include <linux/iopoll.h>
 #include <linux/reset.h>
 
+#include "internals.h"
+
 #define NFC_REG_CTL		0x0000
 #define NFC_REG_ST		0x0004
 #define NFC_REG_INT		0x0008
@@ -2010,6 +2012,9 @@ static int sunxi_nand_chip_init(struct device *dev, struct sunxi_nfc *nfc,
 	/* Default tR value specified in the ONFI spec (chapter 4.15.1) */
 	nand->controller = &nfc->controller;
 	nand->controller->ops = &sunxi_nand_controller_ops;
+#ifdef __MOD_DEVICES__
+	nand->options |= NAND_NEED_SCRAMBLING;
+#endif
 
 	/*
 	 * Set the ECC mode to the default value in case nothing is specified
@@ -2020,6 +2025,9 @@ static int sunxi_nand_chip_init(struct device *dev, struct sunxi_nfc *nfc,
 
 	mtd = nand_to_mtd(nand);
 	mtd->dev.parent = dev;
+#ifdef __MOD_DEVICES__
+	mtd->pairing = &dist3_pairing_scheme;
+#endif
 
 	ret = nand_scan(nand, nsels);
 	if (ret)
