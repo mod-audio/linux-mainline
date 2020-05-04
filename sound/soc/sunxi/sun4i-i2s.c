@@ -40,8 +40,15 @@
 #define SUN4I_I2S_FMT0_BCLK_POLARITY_NORMAL		(0 << 6)
 #define SUN4I_I2S_FMT0_SR_MASK			GENMASK(5, 4)
 #define SUN4I_I2S_FMT0_SR(sr)				((sr) << 4)
+#define SUNXI_I2S_FMT0_SR_16BIT			SUN4I_I2S_FMT0_SR(0)
+#define SUNXI_I2S_FMT0_SR_20BIT			SUN4I_I2S_FMT0_SR(1)
+#define SUNXI_I2S_FMT0_SR_24BIT			SUN4I_I2S_FMT0_SR(2)
 #define SUN4I_I2S_FMT0_WSS_MASK			GENMASK(3, 2)
 #define SUN4I_I2S_FMT0_WSS(wss)				((wss) << 2)
+#define SUNXI_I2S_FMT0_WSS_16BCLK		SUN4I_I2S_FMT0_WSS(0)
+#define SUNXI_I2S_FMT0_WSS_20BCLK		SUN4I_I2S_FMT0_WSS(1)
+#define SUNXI_I2S_FMT0_WSS_24BCLK		SUN4I_I2S_FMT0_WSS(2)
+#define SUNXI_I2S_FMT0_WSS_32BCLK		SUN4I_I2S_FMT0_WSS(3)
 #define SUN4I_I2S_FMT0_FMT_MASK			GENMASK(1, 0)
 #define SUN4I_I2S_FMT0_FMT_RIGHT_J			(2 << 0)
 #define SUN4I_I2S_FMT0_FMT_LEFT_J			(1 << 0)
@@ -392,10 +399,17 @@ static s8 sun4i_i2s_get_wss(const struct sun4i_i2s *i2s, int width)
 	if (width < 16 || width > 32)
 		return -EINVAL;
 
-	if (width % 4)
+   	switch (width)
+	{
+	case 16:
+	case 20:
+	case 24:
+		return (width - 16) / 4;
+	case 32:
+		return 3;
+	default:
 		return -EINVAL;
-
-	return (width - 16) / 4;
+	}
 }
 
 static s8 sun8i_i2s_get_sr_wss(const struct sun4i_i2s *i2s, int width)
@@ -591,6 +605,14 @@ static int sun4i_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT0_REG,
 			   SUN4I_I2S_FMT0_FMT_MASK, val);
 
+#ifdef __MOD_DEVICES__
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT0_REG,
+			   SUN4I_I2S_FMT0_WSS_MASK, SUNXI_I2S_FMT0_WSS_32BCLK);
+
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT0_REG,
+			   SUN4I_I2S_FMT0_SR_MASK, SUNXI_I2S_FMT0_SR_24BIT);
+#endif
+
 	/* DAI clock master masks */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
@@ -744,8 +766,13 @@ static int sun4i_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_FIFO_CTRL_REG,
 			   SUN4I_I2S_FIFO_CTRL_TX_MODE_MASK |
 			   SUN4I_I2S_FIFO_CTRL_RX_MODE_MASK,
+#ifdef __MOD_DEVICES__
+			   SUN4I_I2S_FIFO_CTRL_TX_MODE(0) |
+			   SUN4I_I2S_FIFO_CTRL_RX_MODE(0));
+#else
 			   SUN4I_I2S_FIFO_CTRL_TX_MODE(1) |
 			   SUN4I_I2S_FIFO_CTRL_RX_MODE(1));
+#endif
 
 	i2s->format = fmt;
 
