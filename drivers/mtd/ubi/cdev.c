@@ -616,9 +616,11 @@ static int verify_mkvol_req(const struct ubi_device *ubi,
 	if (req->flags & ~UBI_VOL_VALID_FLGS)
 		goto bad;
 
+#ifndef __MOD_DEVICES__
 	if (req->flags & UBI_VOL_SKIP_CRC_CHECK_FLG &&
 	    req->vol_type != UBI_STATIC_VOLUME)
 		goto bad;
+#endif
 
 	if (req->alignment > ubi->leb_size)
 		goto bad;
