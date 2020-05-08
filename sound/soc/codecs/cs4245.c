@@ -58,7 +58,8 @@ static struct _modduo_gpios {
 
 static void enable_cpu_counters(void* data)
 {
-    printk("[MOD Duo PerfCounter] enabling user-mode PMU access on CPU #%d\n", smp_processor_id());
+    struct i2c_client *i2c_client = (struct i2c_client*)data;
+    dev_info(&i2c_client->dev, "[MOD Duo PerfCounter] enabling user-mode PMU access on CPU #%d\n", smp_processor_id());
 
     /* Enable user-mode access to counters. */
     asm volatile("mcr p15, 0, %0, c9, c14, 0\n\t" :: "r"(1));
@@ -113,7 +114,7 @@ static int modduo_init(struct i2c_client *i2c_client)
 
 	modduo_gpios->initialized = true;
 
-	on_each_cpu(enable_cpu_counters, NULL, 1);
+	on_each_cpu(enable_cpu_counters, i2c_client, 1);
 
 	return 0;
 }
