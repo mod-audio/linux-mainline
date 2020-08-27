@@ -38,8 +38,8 @@
 
 #define CS4265_ADC_CTL2				0x9
 
-#define CS4265_DAC_CHA_VOL			0xA
-#define CS4265_DAC_CHB_VOL			0xB
+#define CS4265_DAC_CHB_VOL			0xA
+#define CS4265_DAC_CHA_VOL			0xB
 
 #define CS4265_DAC_CTL2				0xC
 
