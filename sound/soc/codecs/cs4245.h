@@ -47,8 +47,8 @@
 
 #define CS4245_ADC_CTL2				0x9
 
-#define CS4245_DAC_CHA_VOL			0xA
-#define CS4245_DAC_CHB_VOL			0xB
+#define CS4245_DAC_CHB_VOL			0xA
+#define CS4245_DAC_CHA_VOL			0xB
 
 #define CS4245_DAC_CTL2				0xC
 

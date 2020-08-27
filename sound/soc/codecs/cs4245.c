@@ -338,8 +338,8 @@ static const struct reg_default cs4245_reg_defaults[] = {
 	{ CS4245_CHB_PGA_CTL, 0x00 },
 	{ CS4245_CHA_PGA_CTL, 0x00 },
 	{ CS4245_ADC_CTL2, 0x19 },
-	{ CS4245_DAC_CHA_VOL, 0x00 },
 	{ CS4245_DAC_CHB_VOL, 0x00 },
+	{ CS4245_DAC_CHA_VOL, 0x00 },
 	{ CS4245_DAC_CTL2, 0xC0 },
 	{ CS4245_INT_STATUS, 0x00 },
 	{ CS4245_INT_MASK, 0x00 },
@@ -361,8 +361,8 @@ static void cs4245_printk_register_values(struct cs4245_private *cs4245, const c
 	    regmap_read(cs4245->regmap, CS4245_CHB_PGA_CTL, reg_val +  6) == 0 &&
 	    regmap_read(cs4245->regmap, CS4245_CHA_PGA_CTL, reg_val +  7) == 0 &&
 	    regmap_read(cs4245->regmap, CS4245_ADC_CTL2, reg_val +  8) == 0 &&
-	    regmap_read(cs4245->regmap, CS4245_DAC_CHA_VOL, reg_val +  9) == 0 &&
-	    regmap_read(cs4245->regmap, CS4245_DAC_CHB_VOL, reg_val + 10) == 0 &&
+	    regmap_read(cs4245->regmap, CS4245_DAC_CHB_VOL, reg_val +  9) == 0 &&
+	    regmap_read(cs4245->regmap, CS4245_DAC_CHA_VOL, reg_val + 10) == 0 &&
 	    regmap_read(cs4245->regmap, CS4245_DAC_CTL2, reg_val + 11) == 0)
 	{
 		printk("[CS4245] %s | Register Values:\n", where);
@@ -375,8 +375,8 @@ static void cs4245_printk_register_values(struct cs4245_private *cs4245, const c
 		printk("[CS4245] %s | PGA B CTRL: 0x%X.\n", where, reg_val[6]);
 		printk("[CS4245] %s | PGA A CTRL: 0x%X.\n", where, reg_val[7]);
 		printk("[CS4245] %s | ANALOG IN: 0x%X.\n", where, reg_val[8]);
-		printk("[CS4245] %s | DAC A CTRL: 0x%X.\n", where, reg_val[9]);
-		printk("[CS4245] %s | DAC B CTRL: 0x%X.\n", where, reg_val[10]);
+		printk("[CS4245] %s | DAC B CTRL: 0x%X.\n", where, reg_val[9]);
+		printk("[CS4245] %s | DAC A CTRL: 0x%X.\n", where, reg_val[10]);
 		printk("[CS4245] %s | DAC CTRL 2: 0x%X.\n", where, reg_val[11]);
 	}
 	else
