@@ -7,7 +7,6 @@
  * Author: Paul Handrigan <paul.handrigan@cirrus.com>
  */
 
-#include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -31,7 +30,6 @@
 struct cs4265_private {
 	struct regmap *regmap;
 	struct gpio_desc *reset_gpio;
-	struct clk *mclk;
 	u8 format;
 	u32 sysclk;
 };
@@ -325,9 +323,6 @@ static int cs4265_set_sysclk(struct snd_soc_dai *codec_dai, int clk_id,
 	struct cs4265_private *cs4265 = snd_soc_component_get_drvdata(component);
 	int i;
 
-	if (freq == 0)
-		return 0;
-
 	if (clk_id != 0) {
 		dev_err(component->dev, "Invalid clk_id %d\n", clk_id);
 		return -EINVAL;
@@ -335,14 +330,12 @@ static int cs4265_set_sysclk(struct snd_soc_dai *codec_dai, int clk_id,
 	for (i = 0; i < ARRAY_SIZE(clk_map_table); i++) {
 		if (clk_map_table[i].mclk == freq) {
 			cs4265->sysclk = freq;
-			if (cs4265->mclk)
-				clk_set_rate(cs4265->mclk, freq);
 			return 0;
 		}
 	}
 	cs4265->sysclk = 0;
 	dev_err(component->dev, "Invalid freq parameter %d\n", freq);
-	return 0;
+	return -EINVAL;
 }
 
 static int cs4265_set_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
@@ -475,12 +468,8 @@ static int cs4265_pcm_hw_params(struct snd_pcm_substream *substream,
 static int cs4265_set_bias_level(struct snd_soc_component *component,
 					enum snd_soc_bias_level level)
 {
-	struct cs4265_private *cs4265 = snd_soc_component_get_drvdata(component);
-
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		if (cs4265->mclk)
-			clk_prepare_enable(cs4265->mclk);
 		break;
 	case SND_SOC_BIAS_PREPARE:
 		snd_soc_component_update_bits(component, CS4265_PWRCTL,
@@ -495,8 +484,6 @@ static int cs4265_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component, CS4265_PWRCTL,
 			CS4265_PWRCTL_PDN,
 			CS4265_PWRCTL_PDN);
-		if (cs4265->mclk)
-			clk_disable_unprepare(cs4265->mclk);
 		break;
 	}
 	return 0;
@@ -603,10 +590,6 @@ static int cs4265_i2c_probe(struct i2c_client *i2c_client,
 		dev_err(&i2c_client->dev, "regmap_init() failed: %d\n", ret);
 		return ret;
 	}
-
-	cs4265->mclk = devm_clk_get(&i2c_client->dev, "mclk");
-	if (IS_ERR(cs4265->mclk))
-		cs4265->mclk = NULL;
 
 	cs4265->reset_gpio = devm_gpiod_get_optional(&i2c_client->dev,
 		"reset", GPIOD_OUT_LOW);
