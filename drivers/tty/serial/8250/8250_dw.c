@@ -650,12 +650,14 @@ static int dw8250_probe(struct platform_device *pdev)
 	if (!data->skip_autocfg)
 		dw8250_setup_port(p);
 
+#ifdef CONFIG_SERIAL_8250_DMA
 	/* If we have a valid fifosize, try hooking up DMA */
 	if (p->fifosize) {
 		data->data.dma.rxconf.src_maxburst = p->fifosize / 4;
 		data->data.dma.txconf.dst_maxburst = p->fifosize / 4;
 		up->dma = &data->data.dma;
 	}
+#endif
 
 	data->data.line = serial8250_register_8250_port(up);
 	if (data->data.line < 0)
