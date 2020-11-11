@@ -68,8 +68,8 @@ static struct _modduox_gpios {
 	struct gpio_desc *headphone_dir;
 	struct gpio_desc *gain_stage_left1;
 	struct gpio_desc *gain_stage_left2;
-	struct gpio_desc *gain_stage_right1;
-	struct gpio_desc *gain_stage_right2;
+// 	struct gpio_desc *gain_stage_right1;
+// 	struct gpio_desc *gain_stage_right2;
 #ifdef _MOD_DEVICE_DUOX
 	struct gpio_desc *true_bypass_left;
 	struct gpio_desc *true_bypass_right;
@@ -108,8 +108,8 @@ static int moddevices_init(struct i2c_client *i2c_client)
 	modduox_gpios->headphone_dir     = devm_gpiod_get(&i2c_client->dev, "headphone_dir",     GPIOD_OUT_HIGH);
 	modduox_gpios->gain_stage_left1  = devm_gpiod_get(&i2c_client->dev, "gain_stage_left1",  GPIOD_OUT_HIGH);
 	modduox_gpios->gain_stage_left2  = devm_gpiod_get(&i2c_client->dev, "gain_stage_left2",  GPIOD_OUT_HIGH);
-	modduox_gpios->gain_stage_right1 = devm_gpiod_get(&i2c_client->dev, "gain_stage_right1", GPIOD_OUT_HIGH);
-	modduox_gpios->gain_stage_right2 = devm_gpiod_get(&i2c_client->dev, "gain_stage_right2", GPIOD_OUT_HIGH);
+// 	modduox_gpios->gain_stage_right1 = devm_gpiod_get(&i2c_client->dev, "gain_stage_right1", GPIOD_OUT_HIGH);
+// 	modduox_gpios->gain_stage_right2 = devm_gpiod_get(&i2c_client->dev, "gain_stage_right2", GPIOD_OUT_HIGH);
 #ifdef _MOD_DEVICE_DUOX
 	modduox_gpios->headphone_cv_mode = devm_gpiod_get(&i2c_client->dev, "headphone_cv_mode", GPIOD_OUT_HIGH);
 	modduox_gpios->exp_enable1       = devm_gpiod_get(&i2c_client->dev, "exp_enable1",       GPIOD_OUT_HIGH);
@@ -122,7 +122,7 @@ static int moddevices_init(struct i2c_client *i2c_client)
 	modduox_gpios->true_bypass_right = devm_gpiod_get(&i2c_client->dev, "true_bypass_right", GPIOD_OUT_LOW);
 #endif
 
-	if (IS_ERR(modduox_gpios->gain_stage_right1) || !modduox_gpios->gain_stage_right1) {
+	if (IS_ERR(modduox_gpios->gain_stage_left1) || !modduox_gpios->gain_stage_left2) {
 		modduox_gpios->initialized = false;
 		return 0;
 	}
@@ -146,8 +146,8 @@ static int moddevices_init(struct i2c_client *i2c_client)
 	// FIXME does this mean lowest gain stage? need to confirm
 	gpiod_set_value(modduox_gpios->gain_stage_left1, 1);
 	gpiod_set_value(modduox_gpios->gain_stage_left2, 1);
-	gpiod_set_value(modduox_gpios->gain_stage_right1, 1);
-	gpiod_set_value(modduox_gpios->gain_stage_right2, 1);
+// 	gpiod_set_value(modduox_gpios->gain_stage_right1, 1);
+// 	gpiod_set_value(modduox_gpios->gain_stage_right2, 1);
 
 	modduox_gpios->initialized = true;
 
@@ -206,8 +206,8 @@ static void set_gain_stage(int channel, int state)
 		input_left_gain_stage = state;
 		break;
 	case CHANNEL_RIGHT:
-		gpio1 = modduox_gpios->gain_stage_right1;
-		gpio2 = modduox_gpios->gain_stage_right2;
+// 		gpio1 = modduox_gpios->gain_stage_right1;
+// 		gpio2 = modduox_gpios->gain_stage_right2;
 		input_right_gain_stage = state;
 		break;
 	default:
@@ -914,6 +914,11 @@ static int cs4265_set_sysclk(struct snd_soc_dai *codec_dai, int clk_id,
 	struct snd_soc_component *component = codec_dai->component;
 	struct cs4265_private *cs4265 = snd_soc_component_get_drvdata(component);
 	int i;
+
+	if (freq == 0) {
+		dev_err(component->dev, "Ignoring freq 0\n");
+		return 0;
+	}
 
 	if (clk_id != 0) {
 		dev_err(component->dev, "Invalid clk_id %d\n", clk_id);
