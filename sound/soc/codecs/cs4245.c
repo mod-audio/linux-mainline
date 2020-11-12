@@ -585,23 +585,110 @@ static const struct snd_soc_dapm_route cs4245_audio_map[] = {
 };
 #endif
 
+struct cs4245_clk_para {
+	u32 mclk;
+	u32 rate;
+	u8 fm_mode; /* values 1, 2, or 4 */
+	u8 mclkdiv;
+};
+
+static const struct cs4245_clk_para clk_map_table[] = {
+	/*32k*/
+	{8192000, 32000, 0, 0},
+	{12288000, 32000, 0, 1},
+	{16384000, 32000, 0, 2},
+	{24576000, 32000, 0, 3},
+	{32768000, 32000, 0, 4},
+
+	/*44.1k*/
+	{11289600, 44100, 0, 0},
+	{16934400, 44100, 0, 1},
+	{22579200, 44100, 0, 2},
+	{33868000, 44100, 0, 3},
+	{45158400, 44100, 0, 4},
+
+	/*48k*/
+	{12288000, 48000, 0, 0},
+	{18432000, 48000, 0, 1},
+	{24576000, 48000, 0, 2},
+	{36864000, 48000, 0, 3},
+	{49152000, 48000, 0, 4},
+
+	/*64k*/
+	{8192000, 64000, 1, 0},
+	{12288000, 64000, 1, 1},
+	{16934400, 64000, 1, 2},
+	{24576000, 64000, 1, 3},
+	{32768000, 64000, 1, 4},
+
+	/* 88.2k */
+	{11289600, 88200, 1, 0},
+	{16934400, 88200, 1, 1},
+	{22579200, 88200, 1, 2},
+	{33868000, 88200, 1, 3},
+	{45158400, 88200, 1, 4},
+
+	/* 96k */
+	{12288000, 96000, 1, 0},
+	{18432000, 96000, 1, 1},
+	{24576000, 96000, 1, 2},
+	{36864000, 96000, 1, 3},
+	{49152000, 96000, 1, 4},
+
+	/* 128k */
+	{8192000, 128000, 2, 0},
+	{12288000, 128000, 2, 1},
+	{16934400, 128000, 2, 2},
+	{24576000, 128000, 2, 3},
+	{32768000, 128000, 2, 4},
+
+	/* 176.4k */
+	{11289600, 176400, 2, 0},
+	{16934400, 176400, 2, 1},
+	{22579200, 176400, 2, 2},
+	{33868000, 176400, 2, 3},
+	{49152000, 176400, 2, 4},
+
+	/* 192k */
+	{12288000, 192000, 2, 0},
+	{18432000, 192000, 2, 1},
+	{24576000, 192000, 2, 2},
+	{36864000, 192000, 2, 3},
+	{49152000, 192000, 2, 4},
+};
+
+static int cs4245_get_clk_index(int mclk, int rate)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(clk_map_table); i++) {
+		if (clk_map_table[i].rate == rate &&
+				clk_map_table[i].mclk == mclk)
+			return i;
+	}
+	return -EINVAL;
+}
+
 static int cs4245_set_sysclk(struct snd_soc_dai *codec_dai, int clk_id,
 			unsigned int freq, int dir)
 {
 	struct snd_soc_component *component = codec_dai->component;
 	struct cs4245_private *cs4245 = snd_soc_component_get_drvdata(component);
+	int i;
 
 	if (clk_id != 0) {
 		dev_err(component->dev, "Invalid clk_id %d\n", clk_id);
 		return -EINVAL;
 	}
-	// FIXME if not for MOD, this likely would need to be setup differently..
-	if (freq != 24576000) {
-		dev_err(component->dev, "Invalid freq %d\n", freq);
-		return -EINVAL;
+	for (i = 0; i < ARRAY_SIZE(clk_map_table); i++) {
+		if (clk_map_table[i].mclk == freq) {
+			cs4245->sysclk = freq;
+			return 0;
+		}
 	}
-	cs4245->sysclk = freq;
-	return 0;
+	cs4245->sysclk = 0;
+	dev_err(component->dev, "Invalid freq parameter %d\n", freq);
+	return -EINVAL;
 }
 
 static int cs4245_set_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
@@ -612,28 +699,11 @@ static int cs4245_set_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
-		snd_soc_component_update_bits(component, CS4245_DAC_CTL,
-				CS4245_DAC_MASTER,
-				CS4245_DAC_MASTER);
-
 		snd_soc_component_update_bits(component, CS4245_ADC_CTL,
 				CS4245_ADC_MASTER,
 				CS4245_ADC_MASTER);
 		break;
 	case SND_SOC_DAIFMT_CBS_CFS:
-		snd_soc_component_update_bits(component, CS4245_DAC_CTL,
-				CS4245_DAC_MASTER,
-				0);
-
-		snd_soc_component_update_bits(component, CS4245_ADC_CTL,
-				CS4245_ADC_MASTER,
-				0);
-		break;
-	case SND_SOC_DAIFMT_CBM_CFS:
-		snd_soc_component_update_bits(component, CS4245_DAC_CTL,
-				CS4245_DAC_MASTER,
-				CS4245_DAC_MASTER);
-
 		snd_soc_component_update_bits(component, CS4245_ADC_CTL,
 				CS4245_ADC_MASTER,
 				0);
@@ -694,28 +764,23 @@ static int cs4245_pcm_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_component *component = dai->component;
 	struct cs4245_private *cs4245 = snd_soc_component_get_drvdata(component);
+	int index;
 
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE &&
 		((cs4245->format & SND_SOC_DAIFMT_FORMAT_MASK)
 		== SND_SOC_DAIFMT_RIGHT_J))
 		return -EINVAL;
 
-	// FIXME if not for MOD, this likely would need to be setup differently..
-	{
-		snd_soc_component_update_bits(component, CS4245_DAC_CTL,
-			CS4245_DAC_FM,
-			0 /* fm_mode or 1 */ << 6); // CS4245_DAC_FM_SHIFT
-
+	index = cs4245_get_clk_index(cs4245->sysclk, params_rate(params));
+	if (index >= 0) {
 		snd_soc_component_update_bits(component, CS4245_ADC_CTL,
-			CS4245_ADC_FM,
-			0 /* fm_mode or 1 */ << 6); // CS4245_ADC_FM_SHIFT
+			CS4245_ADC_FM, clk_map_table[index].fm_mode << 6);
+		snd_soc_component_update_bits(component, CS4245_MCLK_FREQ,
+			CS4245_MCLK_FREQ_MASK, clk_map_table[index].mclkdiv << 4);
 
-		snd_soc_component_update_bits(component, CS4245_MCLK_FREQ,
-			CS4245_MCLK_FREQ_MASK,
-			2 /* mclkdiv */ << 4); // CS4245_MCLK1_SHIFT
-		snd_soc_component_update_bits(component, CS4245_MCLK_FREQ,
-			CS4245_MCLK2_FREQ_MASK,
-			2 /* mclkdiv */ << 0); // CS4245_MCLK2_SHIFT
+	} else {
+		dev_err(component->dev, "can't get correct mclk\n");
+		return -EINVAL;
 	}
 
 	switch (cs4245->format & SND_SOC_DAIFMT_FORMAT_MASK) {
@@ -785,9 +850,19 @@ static int cs4245_set_bias_level(struct snd_soc_component *component,
 }
 #endif // __MOD_DEVICES__
 
+#ifndef __MOD_DEVICES__
 #define CS4245_RATES (SNDRV_PCM_RATE_48000)
-
 #define CS4245_FORMATS (SNDRV_PCM_FMTBIT_S24_LE)
+#else
+#define CS4245_RATES (SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | \
+			SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_64000 | \
+			SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000 | \
+			SNDRV_PCM_RATE_176400 | SNDRV_PCM_RATE_192000)
+
+#define CS4245_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE | \
+			SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_U24_LE | \
+			SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_U32_LE)
+#endif
 
 static const struct snd_soc_dai_ops cs4245_ops = {
 	.hw_params	= cs4245_pcm_hw_params,
