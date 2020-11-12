@@ -326,7 +326,7 @@ static void set_cv_exp_pedal_mode(int mode)
 		break;
 	}
 }
-#endif
+#endif // _MOD_DEVICE_DUOX
 
 //----------------------------------------------------------------------
 
@@ -577,6 +577,7 @@ static DECLARE_TLV_DB_SCALE(pga_tlv, -1200, 50, 0);
 
 static DECLARE_TLV_DB_SCALE(dac_tlv, -12750, 50, 0);
 
+#ifndef _MOD_DEVICE_DWARF
 static const char * const digital_input_mux_text[] = {
 	"SDIN1", "SDIN2"
 };
@@ -626,7 +627,9 @@ static const struct snd_kcontrol_new spdif_switch =
 
 static const struct snd_kcontrol_new dac_switch =
 	SOC_DAPM_SINGLE("Switch", CS4265_PWRCTL, 1, 1, 0);
+#endif // ! _MOD_DEVICE_DWARF
 
+#ifdef __MOD_DEVICES__
 static const unsigned int gain_stages_tlv[] = {
     TLV_DB_RANGE_HEAD(4),
     0, 0, TLV_DB_SCALE_ITEM(0,  0, 0),
@@ -634,6 +637,7 @@ static const unsigned int gain_stages_tlv[] = {
     2, 2, TLV_DB_SCALE_ITEM(15.0, 0, 0),
     3, 3, TLV_DB_SCALE_ITEM(20.4, 0, 0),
 };
+#endif
 
 static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 
@@ -646,6 +650,7 @@ static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 #endif
 	SOC_DOUBLE_R_TLV("DAC Volume", CS4265_DAC_CHA_VOL,
 		      CS4265_DAC_CHB_VOL, 0, 0xFF, 1, dac_tlv),
+#ifndef _MOD_DEVICE_DWARF
 	SOC_SINGLE("De-emp 44.1kHz Switch", CS4265_DAC_CTL, 1,
 				1, 0),
 	SOC_SINGLE("DAC INV Switch", CS4265_DAC_CTL2, 5,
@@ -658,7 +663,7 @@ static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 				1, 0),
 	SOC_SINGLE("ADC Zero Cross Switch", CS4265_ADC_CTL2, 3,
 				1, 1),
-	SOC_SINGLE("ADC Soft Ramp Switch", CS4265_ADC_CTL2, 7,
+	SOC_SINGLE("ADC Soft Ramp Switch", CS4265_ADC_CTL2, 4,
 				1, 0),
 	SOC_SINGLE("E to F Buffer Disable Switch", CS4265_SPDIF_CTL1,
 				6, 1, 0),
@@ -670,7 +675,9 @@ static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 	SOC_SINGLE("MMTLR Data Switch", CS4265_SPDIF_CTL2, 0, 1, 0),
 	SOC_ENUM("Mono Channel Select", spdif_mono_select_enum),
 	SND_SOC_BYTES("C Data Buffer", CS4265_C_DATA_BUFF, 24),
-
+#else
+	SOC_SINGLE("LOOPBACK", CS4265_SIG_SEL, 1, 1, 0),
+#endif // _MOD_DEVICE_DWARF
 #ifdef __MOD_DEVICES__
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -751,6 +758,7 @@ static const struct snd_kcontrol_new cs4265_snd_controls[] = {
 #endif // __MOD_DEVICES__
 };
 
+#ifndef _MOD_DEVICE_DWARF
 static const struct snd_soc_dapm_widget cs4265_dapm_widgets[] = {
 
 	SND_SOC_DAPM_INPUT("LINEINL"),
@@ -823,6 +831,7 @@ static const struct snd_soc_dapm_route cs4265_audio_map[] = {
 	{"Loopback", "Switch", "ADC"},
 	{"DAC", NULL, "Loopback"},
 };
+#endif // ! _MOD_DEVICE_DWARF
 
 struct cs4265_clk_para {
 	u32 mclk;
@@ -1062,6 +1071,7 @@ static int cs4265_pcm_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+#ifndef _MOD_DEVICE_DWARF
 static int cs4265_set_bias_level(struct snd_soc_component *component,
 					enum snd_soc_bias_level level)
 {
@@ -1085,6 +1095,7 @@ static int cs4265_set_bias_level(struct snd_soc_component *component,
 	}
 	return 0;
 }
+#endif // ! _MOD_DEVICE_DWARF
 
 #define CS4265_RATES (SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | \
 			SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_64000 | \
@@ -1143,13 +1154,15 @@ static struct snd_soc_dai_driver cs4265_dai[] = {
 };
 
 static const struct snd_soc_component_driver soc_component_cs4265 = {
-	.set_bias_level		= cs4265_set_bias_level,
 	.controls		= cs4265_snd_controls,
 	.num_controls		= ARRAY_SIZE(cs4265_snd_controls),
+#ifndef _MOD_DEVICE_DWARF
+	.set_bias_level		= cs4265_set_bias_level,
 	.dapm_widgets		= cs4265_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(cs4265_dapm_widgets),
 	.dapm_routes		= cs4265_audio_map,
 	.num_dapm_routes	= ARRAY_SIZE(cs4265_audio_map),
+#endif
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
@@ -1213,7 +1226,18 @@ static int cs4265_i2c_probe(struct i2c_client *i2c_client,
 		"CS4265 Version %x\n",
 			reg & CS4265_REV_ID_MASK);
 
+#ifdef _MOD_DEVICE_DWARF
+	// setup registers as needed for MOD Dwarf
+	regmap_write(cs4265->regmap, CS4265_PWRCTL, 0x08); /* turn on everything except mic */
+	regmap_write(cs4265->regmap, CS4265_DAC_CTL, 0x08 | 0x00); /* reserved, everything on */
+	regmap_write(cs4265->regmap, CS4265_ADC_CTL, 0x00); /* everything on */
+	regmap_write(cs4265->regmap, CS4265_SIG_SEL, 0x40 | 0x20 | 0x02); /* reserved, LINEIN???, Loopback */
+	regmap_write(cs4265->regmap, CS4265_ADC_CTL2, 0x10 | 0x08 | 0x01); /* Soft Ramp, Zero Cross, LINEIN */
+	regmap_write(cs4265->regmap, CS4265_DAC_CTL2, 0x80 | 0x40); /* Soft Ramp, Zero Cross */
+#else
+	// regular stuff
 	regmap_write(cs4265->regmap, CS4265_PWRCTL, 0x0F);
+#endif
 
 	ret = devm_snd_soc_register_component(&i2c_client->dev,
 			&soc_component_cs4265, cs4265_dai,
