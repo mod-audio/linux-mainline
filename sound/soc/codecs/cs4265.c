@@ -1231,7 +1231,7 @@ static int cs4265_i2c_probe(struct i2c_client *i2c_client,
 	regmap_write(cs4265->regmap, CS4265_PWRCTL, 0x08); /* turn on everything except mic */
 	regmap_write(cs4265->regmap, CS4265_DAC_CTL, 0x08 | 0x00); /* reserved, everything on */
 	regmap_write(cs4265->regmap, CS4265_ADC_CTL, 0x00); /* everything on */
-	regmap_write(cs4265->regmap, CS4265_SIG_SEL, 0x40 | 0x20 | 0x02); /* reserved, LINEIN???, Loopback */
+	regmap_write(cs4265->regmap, CS4265_SIG_SEL, 0x40 | 0x02); /* reserved, LINEIN???, Loopback */
 	regmap_write(cs4265->regmap, CS4265_ADC_CTL2, 0x10 | 0x08 | 0x01); /* Soft Ramp, Zero Cross, LINEIN */
 	regmap_write(cs4265->regmap, CS4265_DAC_CTL2, 0x80 | 0x40); /* Soft Ramp, Zero Cross */
 #else
