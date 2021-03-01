@@ -11,6 +11,13 @@
 
 #include <linux/usb/composite.h>
 
+/*
+ * Min/max percentage of nominal sampling frequency deviation
+ * reported through feedback endpoint to the host
+ */
+#define FBACK_FREQ_MIN	80
+#define FBACK_FREQ_MAX	120
+
 struct uac_params {
 	/* playback */
 	int p_chmask;	/* channel mask */

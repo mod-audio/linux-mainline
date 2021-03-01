@@ -503,6 +503,10 @@ static int set_ep_max_packet_size(const struct f_uac2_opts *uac2_opts,
 
 	max_size_bw = num_channels(chmask) * ssize *
 		((srate / (factor / (1 << (ep_desc->bInterval - 1)))) + 1);
+
+	if (!is_playback && (uac2_opts->c_sync == USB_ENDPOINT_SYNC_ASYNC))
+		max_size_bw = max_size_bw * FBACK_FREQ_MAX / 100;
+
 	ep_desc->wMaxPacketSize = cpu_to_le16(min_t(u16, max_size_bw,
 						    max_size_ep));
 
