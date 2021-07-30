@@ -1303,9 +1303,7 @@ static bool __reg64_bound_s32(s64 a)
 
 static bool __reg64_bound_u32(u64 a)
 {
-	if (a > U32_MIN && a < U32_MAX)
-		return true;
-	return false;
+	return a > U32_MIN && a < U32_MAX;
 }
 
 static void __reg_combine_64_into_32(struct bpf_reg_state *reg)
@@ -1316,10 +1314,10 @@ static void __reg_combine_64_into_32(struct bpf_reg_state *reg)
 		reg->s32_min_value = (s32)reg->smin_value;
 		reg->s32_max_value = (s32)reg->smax_value;
 	}
-	if (__reg64_bound_u32(reg->umin_value))
+	if (__reg64_bound_u32(reg->umin_value) && __reg64_bound_u32(reg->umax_value)) {
 		reg->u32_min_value = (u32)reg->umin_value;
-	if (__reg64_bound_u32(reg->umax_value))
 		reg->u32_max_value = (u32)reg->umax_value;
+	}
 
 	/* Intersecting with the old var_off might have improved our bounds
 	 * slightly.  e.g. if umax was 0x7f...f and var_off was (0; 0xf...fc),
@@ -3358,6 +3356,8 @@ continue_func:
 	if (tail_call_reachable)
 		for (j = 0; j < frame; j++)
 			subprog[ret_prog[j]].tail_call_reachable = true;
+	if (subprog[0].tail_call_reachable)
+		env->prog->aux->tail_call_reachable = true;
 
 	/* end of for() loop means the last insn of the 'subprog'
 	 * was reached. Doesn't matter whether it was JA or EXIT
@@ -5668,17 +5668,9 @@ enum {
 };
 
 static int retrieve_ptr_limit(const struct bpf_reg_state *ptr_reg,
-			      const struct bpf_reg_state *off_reg,
-			      u32 *alu_limit, u8 opcode)
+			      u32 *alu_limit, bool mask_to_left)
 {
-	bool off_is_neg = off_reg->smin_value < 0;
-	bool mask_to_left = (opcode == BPF_ADD &&  off_is_neg) ||
-			    (opcode == BPF_SUB && !off_is_neg);
 	u32 max = 0, ptr_limit = 0;
-
-	if (!tnum_is_const(off_reg->var_off) &&
-	    (off_reg->smin_value < 0) != (off_reg->smax_value < 0))
-		return REASON_BOUNDS;
 
 	switch (ptr_reg->type) {
 	case PTR_TO_STACK:
@@ -5745,16 +5737,43 @@ static bool sanitize_needed(u8 opcode)
 	return opcode == BPF_ADD || opcode == BPF_SUB;
 }
 
+struct bpf_sanitize_info {
+	struct bpf_insn_aux_data aux;
+	bool mask_to_left;
+};
+
+static struct bpf_verifier_state *
+sanitize_speculative_path(struct bpf_verifier_env *env,
+			  const struct bpf_insn *insn,
+			  u32 next_idx, u32 curr_idx)
+{
+	struct bpf_verifier_state *branch;
+	struct bpf_reg_state *regs;
+
+	branch = push_stack(env, next_idx, curr_idx, true);
+	if (branch && insn) {
+		regs = branch->frame[branch->curframe]->regs;
+		if (BPF_SRC(insn->code) == BPF_K) {
+			mark_reg_unknown(env, regs, insn->dst_reg);
+		} else if (BPF_SRC(insn->code) == BPF_X) {
+			mark_reg_unknown(env, regs, insn->dst_reg);
+			mark_reg_unknown(env, regs, insn->src_reg);
+		}
+	}
+	return branch;
+}
+
 static int sanitize_ptr_alu(struct bpf_verifier_env *env,
 			    struct bpf_insn *insn,
 			    const struct bpf_reg_state *ptr_reg,
 			    const struct bpf_reg_state *off_reg,
 			    struct bpf_reg_state *dst_reg,
-			    struct bpf_insn_aux_data *tmp_aux,
+			    struct bpf_sanitize_info *info,
 			    const bool commit_window)
 {
-	struct bpf_insn_aux_data *aux = commit_window ? cur_aux(env) : tmp_aux;
+	struct bpf_insn_aux_data *aux = commit_window ? cur_aux(env) : &info->aux;
 	struct bpf_verifier_state *vstate = env->cur_state;
+	bool off_is_imm = tnum_is_const(off_reg->var_off);
 	bool off_is_neg = off_reg->smin_value < 0;
 	bool ptr_is_dst_reg = ptr_reg == dst_reg;
 	u8 opcode = BPF_OP(insn->code);
@@ -5773,7 +5792,16 @@ static int sanitize_ptr_alu(struct bpf_verifier_env *env,
 	if (vstate->speculative)
 		goto do_sim;
 
-	err = retrieve_ptr_limit(ptr_reg, off_reg, &alu_limit, opcode);
+	if (!commit_window) {
+		if (!tnum_is_const(off_reg->var_off) &&
+		    (off_reg->smin_value < 0) != (off_reg->smax_value < 0))
+			return REASON_BOUNDS;
+
+		info->mask_to_left = (opcode == BPF_ADD &&  off_is_neg) ||
+				     (opcode == BPF_SUB && !off_is_neg);
+	}
+
+	err = retrieve_ptr_limit(ptr_reg, &alu_limit, info->mask_to_left);
 	if (err < 0)
 		return err;
 
@@ -5781,10 +5809,11 @@ static int sanitize_ptr_alu(struct bpf_verifier_env *env,
 		/* In commit phase we narrow the masking window based on
 		 * the observed pointer move after the simulated operation.
 		 */
-		alu_state = tmp_aux->alu_state;
-		alu_limit = abs(tmp_aux->alu_limit - alu_limit);
+		alu_state = info->aux.alu_state;
+		alu_limit = abs(info->aux.alu_limit - alu_limit);
 	} else {
 		alu_state  = off_is_neg ? BPF_ALU_NEG_VALUE : 0;
+		alu_state |= off_is_imm ? BPF_ALU_IMMEDIATE : 0;
 		alu_state |= ptr_is_dst_reg ?
 			     BPF_ALU_SANITIZE_SRC : BPF_ALU_SANITIZE_DST;
 	}
@@ -5796,8 +5825,12 @@ do_sim:
 	/* If we're in commit phase, we're done here given we already
 	 * pushed the truncated dst_reg into the speculative verification
 	 * stack.
+	 *
+	 * Also, when register is a known constant, we rewrite register-based
+	 * operation to immediate-based, and thus do not need masking (and as
+	 * a consequence, do not need to simulate the zero-truncation either).
 	 */
-	if (commit_window)
+	if (commit_window || off_is_imm)
 		return 0;
 
 	/* Simulate and find potential out-of-bounds access under
@@ -5813,10 +5846,24 @@ do_sim:
 		tmp = *dst_reg;
 		*dst_reg = *ptr_reg;
 	}
-	ret = push_stack(env, env->insn_idx + 1, env->insn_idx, true);
+	ret = sanitize_speculative_path(env, NULL, env->insn_idx + 1,
+					env->insn_idx);
 	if (!ptr_is_dst_reg && ret)
 		*dst_reg = tmp;
 	return !ret ? REASON_STACK : 0;
+}
+
+static void sanitize_mark_insn_seen(struct bpf_verifier_env *env)
+{
+	struct bpf_verifier_state *vstate = env->cur_state;
+
+	/* If we simulate paths under speculation, we don't update the
+	 * insn as 'seen' such that when we verify unreachable paths in
+	 * the non-speculative domain, sanitize_dead_code() can still
+	 * rewrite/sanitize them.
+	 */
+	if (!vstate->speculative)
+		env->insn_aux_data[env->insn_idx].seen = env->pass_cnt;
 }
 
 static int sanitize_err(struct bpf_verifier_env *env,
@@ -5942,7 +5989,7 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 	    smin_ptr = ptr_reg->smin_value, smax_ptr = ptr_reg->smax_value;
 	u64 umin_val = off_reg->umin_value, umax_val = off_reg->umax_value,
 	    umin_ptr = ptr_reg->umin_value, umax_ptr = ptr_reg->umax_value;
-	struct bpf_insn_aux_data tmp_aux = {};
+	struct bpf_sanitize_info info = {};
 	u8 opcode = BPF_OP(insn->code);
 	u32 dst = insn->dst_reg;
 	int ret;
@@ -6011,7 +6058,7 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 
 	if (sanitize_needed(opcode)) {
 		ret = sanitize_ptr_alu(env, insn, ptr_reg, off_reg, dst_reg,
-				       &tmp_aux, false);
+				       &info, false);
 		if (ret < 0)
 			return sanitize_err(env, insn, ret, off_reg, dst_reg);
 	}
@@ -6152,7 +6199,7 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 		return -EACCES;
 	if (sanitize_needed(opcode)) {
 		ret = sanitize_ptr_alu(env, insn, dst_reg, off_reg, dst_reg,
-				       &tmp_aux, true);
+				       &info, true);
 		if (ret < 0)
 			return sanitize_err(env, insn, ret, off_reg, dst_reg);
 	}
@@ -6341,11 +6388,10 @@ static void scalar32_min_max_and(struct bpf_reg_state *dst_reg,
 	s32 smin_val = src_reg->s32_min_value;
 	u32 umax_val = src_reg->u32_max_value;
 
-	/* Assuming scalar64_min_max_and will be called so its safe
-	 * to skip updating register for known 32-bit case.
-	 */
-	if (src_known && dst_known)
+	if (src_known && dst_known) {
+		__mark_reg32_known(dst_reg, var32_off.value);
 		return;
+	}
 
 	/* We get our minimum from the var_off, since that's inherently
 	 * bitwise.  Our maximum is the minimum of the operands' maxima.
@@ -6365,7 +6411,6 @@ static void scalar32_min_max_and(struct bpf_reg_state *dst_reg,
 		dst_reg->s32_min_value = dst_reg->u32_min_value;
 		dst_reg->s32_max_value = dst_reg->u32_max_value;
 	}
-
 }
 
 static void scalar_min_max_and(struct bpf_reg_state *dst_reg,
@@ -6412,11 +6457,10 @@ static void scalar32_min_max_or(struct bpf_reg_state *dst_reg,
 	s32 smin_val = src_reg->s32_min_value;
 	u32 umin_val = src_reg->u32_min_value;
 
-	/* Assuming scalar64_min_max_or will be called so it is safe
-	 * to skip updating register for known case.
-	 */
-	if (src_known && dst_known)
+	if (src_known && dst_known) {
+		__mark_reg32_known(dst_reg, var32_off.value);
 		return;
+	}
 
 	/* We get our maximum from the var_off, and our minimum is the
 	 * maximum of the operands' minima
@@ -6481,11 +6525,10 @@ static void scalar32_min_max_xor(struct bpf_reg_state *dst_reg,
 	struct tnum var32_off = tnum_subreg(dst_reg->var_off);
 	s32 smin_val = src_reg->s32_min_value;
 
-	/* Assuming scalar64_min_max_xor will be called so it is safe
-	 * to skip updating register for known case.
-	 */
-	if (src_known && dst_known)
+	if (src_known && dst_known) {
+		__mark_reg32_known(dst_reg, var32_off.value);
 		return;
+	}
 
 	/* We get both minimum and maximum from the var32_off. */
 	dst_reg->u32_min_value = var32_off.value;
@@ -7968,14 +8011,28 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 		if (err)
 			return err;
 	}
+
 	if (pred == 1) {
-		/* only follow the goto, ignore fall-through */
+		/* Only follow the goto, ignore fall-through. If needed, push
+		 * the fall-through branch for simulation under speculative
+		 * execution.
+		 */
+		if (!env->bypass_spec_v1 &&
+		    !sanitize_speculative_path(env, insn, *insn_idx + 1,
+					       *insn_idx))
+			return -EFAULT;
 		*insn_idx += insn->off;
 		return 0;
 	} else if (pred == 0) {
-		/* only follow fall-through branch, since
-		 * that's where the program will go
+		/* Only follow the fall-through branch, since that's where the
+		 * program will go. If needed, push the goto branch for
+		 * simulation under speculative execution.
 		 */
+		if (!env->bypass_spec_v1 &&
+		    !sanitize_speculative_path(env, insn,
+					       *insn_idx + insn->off + 1,
+					       *insn_idx))
+			return -EFAULT;
 		return 0;
 	}
 
@@ -9805,7 +9862,7 @@ static int do_check(struct bpf_verifier_env *env)
 		}
 
 		regs = cur_regs(env);
-		env->insn_aux_data[env->insn_idx].seen = env->pass_cnt;
+		sanitize_mark_insn_seen(env);
 		prev_insn_idx = env->insn_idx;
 
 		if (class == BPF_ALU || class == BPF_ALU64) {
@@ -10025,7 +10082,7 @@ process_bpf_exit:
 					return err;
 
 				env->insn_idx++;
-				env->insn_aux_data[env->insn_idx].seen = env->pass_cnt;
+				sanitize_mark_insn_seen(env);
 			} else {
 				verbose(env, "invalid BPF_LD mode\n");
 				return -EINVAL;
@@ -10433,6 +10490,7 @@ static int adjust_insn_aux_data(struct bpf_verifier_env *env,
 {
 	struct bpf_insn_aux_data *new_data, *old_data = env->insn_aux_data;
 	struct bpf_insn *insn = new_prog->insnsi;
+	u32 old_seen = old_data[off].seen;
 	u32 prog_len;
 	int i;
 
@@ -10453,7 +10511,8 @@ static int adjust_insn_aux_data(struct bpf_verifier_env *env,
 	memcpy(new_data + off + cnt - 1, old_data + off,
 	       sizeof(struct bpf_insn_aux_data) * (prog_len - off - cnt + 1));
 	for (i = off; i < off + cnt - 1; i++) {
-		new_data[i].seen = env->pass_cnt;
+		/* Expand insni[off]'s seen count to the patched range. */
+		new_data[i].seen = old_seen;
 		new_data[i].zext_dst = insn_has_def32(env, insn + i);
 	}
 	env->insn_aux_data = new_data;
@@ -10475,7 +10534,7 @@ static void adjust_subprog_starts(struct bpf_verifier_env *env, u32 off, u32 len
 	}
 }
 
-static void adjust_poke_descs(struct bpf_prog *prog, u32 len)
+static void adjust_poke_descs(struct bpf_prog *prog, u32 off, u32 len)
 {
 	struct bpf_jit_poke_descriptor *tab = prog->aux->poke_tab;
 	int i, sz = prog->aux->size_poke_tab;
@@ -10483,6 +10542,8 @@ static void adjust_poke_descs(struct bpf_prog *prog, u32 len)
 
 	for (i = 0; i < sz; i++) {
 		desc = &tab[i];
+		if (desc->insn_idx <= off)
+			continue;
 		desc->insn_idx += len - 1;
 	}
 }
@@ -10503,7 +10564,7 @@ static struct bpf_prog *bpf_patch_insn_data(struct bpf_verifier_env *env, u32 of
 	if (adjust_insn_aux_data(env, new_prog, off, len))
 		return NULL;
 	adjust_subprog_starts(env, off, len);
-	adjust_poke_descs(new_prog, len);
+	adjust_poke_descs(new_prog, off, len);
 	return new_prog;
 }
 
@@ -11098,33 +11159,19 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 			goto out_free;
 		func[i]->is_func = 1;
 		func[i]->aux->func_idx = i;
-		/* the btf and func_info will be freed only at prog->aux */
+		/* Below members will be freed only at prog->aux */
 		func[i]->aux->btf = prog->aux->btf;
 		func[i]->aux->func_info = prog->aux->func_info;
+		func[i]->aux->poke_tab = prog->aux->poke_tab;
+		func[i]->aux->size_poke_tab = prog->aux->size_poke_tab;
 
 		for (j = 0; j < prog->aux->size_poke_tab; j++) {
-			u32 insn_idx = prog->aux->poke_tab[j].insn_idx;
-			int ret;
+			struct bpf_jit_poke_descriptor *poke;
 
-			if (!(insn_idx >= subprog_start &&
-			      insn_idx <= subprog_end))
-				continue;
-
-			ret = bpf_jit_add_poke_descriptor(func[i],
-							  &prog->aux->poke_tab[j]);
-			if (ret < 0) {
-				verbose(env, "adding tail call poke descriptor failed\n");
-				goto out_free;
-			}
-
-			func[i]->insnsi[insn_idx - subprog_start].imm = ret + 1;
-
-			map_ptr = func[i]->aux->poke_tab[ret].tail_call.map;
-			ret = map_ptr->ops->map_poke_track(map_ptr, func[i]->aux);
-			if (ret < 0) {
-				verbose(env, "tracking tail call prog failed\n");
-				goto out_free;
-			}
+			poke = &prog->aux->poke_tab[j];
+			if (poke->insn_idx < subprog_end &&
+			    poke->insn_idx >= subprog_start)
+				poke->aux = func[i]->aux;
 		}
 
 		/* Use bpf_prog_F_tag to indicate functions in stack traces.
@@ -11152,18 +11199,6 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 			goto out_free;
 		}
 		cond_resched();
-	}
-
-	/* Untrack main program's aux structs so that during map_poke_run()
-	 * we will not stumble upon the unfilled poke descriptors; each
-	 * of the main program's poke descs got distributed across subprogs
-	 * and got tracked onto map, so we are sure that none of them will
-	 * be missed after the operation below
-	 */
-	for (i = 0; i < prog->aux->size_poke_tab; i++) {
-		map_ptr = prog->aux->poke_tab[i].tail_call.map;
-
-		map_ptr->ops->map_poke_untrack(map_ptr, prog->aux);
 	}
 
 	/* at this point all bpf functions were successfully JITed
@@ -11234,14 +11269,22 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 	bpf_prog_free_unused_jited_linfo(prog);
 	return 0;
 out_free:
+	/* We failed JIT'ing, so at this point we need to unregister poke
+	 * descriptors from subprogs, so that kernel is not attempting to
+	 * patch it anymore as we're freeing the subprog JIT memory.
+	 */
+	for (i = 0; i < prog->aux->size_poke_tab; i++) {
+		map_ptr = prog->aux->poke_tab[i].tail_call.map;
+		map_ptr->ops->map_poke_untrack(map_ptr, prog->aux);
+	}
+	/* At this point we're guaranteed that poke descriptors are not
+	 * live anymore. We can just unlink its descriptor table as it's
+	 * released with the main prog.
+	 */
 	for (i = 0; i < env->subprog_cnt; i++) {
 		if (!func[i])
 			continue;
-
-		for (j = 0; j < func[i]->aux->size_poke_tab; j++) {
-			map_ptr = func[i]->aux->poke_tab[j].tail_call.map;
-			map_ptr->ops->map_poke_untrack(map_ptr, func[i]->aux);
-		}
+		func[i]->aux->poke_tab = NULL;
 		bpf_jit_free(func[i]);
 	}
 	kfree(func);
@@ -11383,7 +11426,7 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 			const u8 code_sub = BPF_ALU64 | BPF_SUB | BPF_X;
 			struct bpf_insn insn_buf[16];
 			struct bpf_insn *patch = &insn_buf[0];
-			bool issrc, isneg;
+			bool issrc, isneg, isimm;
 			u32 off_reg;
 
 			aux = &env->insn_aux_data[i + delta];
@@ -11394,28 +11437,29 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 			isneg = aux->alu_state & BPF_ALU_NEG_VALUE;
 			issrc = (aux->alu_state & BPF_ALU_SANITIZE) ==
 				BPF_ALU_SANITIZE_SRC;
+			isimm = aux->alu_state & BPF_ALU_IMMEDIATE;
 
 			off_reg = issrc ? insn->src_reg : insn->dst_reg;
-			if (isneg)
-				*patch++ = BPF_ALU64_IMM(BPF_MUL, off_reg, -1);
-			*patch++ = BPF_MOV32_IMM(BPF_REG_AX, aux->alu_limit);
-			*patch++ = BPF_ALU64_REG(BPF_SUB, BPF_REG_AX, off_reg);
-			*patch++ = BPF_ALU64_REG(BPF_OR, BPF_REG_AX, off_reg);
-			*patch++ = BPF_ALU64_IMM(BPF_NEG, BPF_REG_AX, 0);
-			*patch++ = BPF_ALU64_IMM(BPF_ARSH, BPF_REG_AX, 63);
-			if (issrc) {
-				*patch++ = BPF_ALU64_REG(BPF_AND, BPF_REG_AX,
-							 off_reg);
-				insn->src_reg = BPF_REG_AX;
+			if (isimm) {
+				*patch++ = BPF_MOV32_IMM(BPF_REG_AX, aux->alu_limit);
 			} else {
-				*patch++ = BPF_ALU64_REG(BPF_AND, off_reg,
-							 BPF_REG_AX);
+				if (isneg)
+					*patch++ = BPF_ALU64_IMM(BPF_MUL, off_reg, -1);
+				*patch++ = BPF_MOV32_IMM(BPF_REG_AX, aux->alu_limit);
+				*patch++ = BPF_ALU64_REG(BPF_SUB, BPF_REG_AX, off_reg);
+				*patch++ = BPF_ALU64_REG(BPF_OR, BPF_REG_AX, off_reg);
+				*patch++ = BPF_ALU64_IMM(BPF_NEG, BPF_REG_AX, 0);
+				*patch++ = BPF_ALU64_IMM(BPF_ARSH, BPF_REG_AX, 63);
+				*patch++ = BPF_ALU64_REG(BPF_AND, BPF_REG_AX, off_reg);
 			}
+			if (!issrc)
+				*patch++ = BPF_MOV64_REG(insn->dst_reg, insn->src_reg);
+			insn->src_reg = BPF_REG_AX;
 			if (isneg)
 				insn->code = insn->code == code_add ?
 					     code_sub : code_add;
 			*patch++ = *insn;
-			if (issrc && isneg)
+			if (issrc && isneg && !isimm)
 				*patch++ = BPF_ALU64_IMM(BPF_MUL, off_reg, -1);
 			cnt = patch - insn_buf;
 
@@ -11696,6 +11740,9 @@ static void free_states(struct bpf_verifier_env *env)
  * insn_aux_data was touched. These variables are compared to clear temporary
  * data from failed pass. For testing and experiments do_check_common() can be
  * run multiple times even when prior attempt to verify is unsuccessful.
+ *
+ * Note that special handling is needed on !env->bypass_spec_v1 if this is
+ * ever called outside of error path with subsequent program rejection.
  */
 static void sanitize_insn_aux_data(struct bpf_verifier_env *env)
 {
@@ -12357,12 +12404,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	if (is_priv)
 		env->test_state_freq = attr->prog_flags & BPF_F_TEST_STATE_FREQ;
 
-	if (bpf_prog_is_dev_bound(env->prog->aux)) {
-		ret = bpf_prog_offload_verifier_prep(env->prog);
-		if (ret)
-			goto skip_full_check;
-	}
-
 	env->explored_states = kvcalloc(state_htab_size(env),
 				       sizeof(struct bpf_verifier_state_list *),
 				       GFP_USER);
@@ -12385,6 +12426,12 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	ret = resolve_pseudo_ldimm64(env);
 	if (ret < 0)
 		goto skip_full_check;
+
+	if (bpf_prog_is_dev_bound(env->prog->aux)) {
+		ret = bpf_prog_offload_verifier_prep(env->prog);
+		if (ret)
+			goto skip_full_check;
+	}
 
 	ret = check_cfg(env);
 	if (ret < 0)
