@@ -618,8 +618,13 @@ static int sun4i_i2s_hw_params(struct snd_pcm_substream *substream,
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_FIFO_CTRL_REG,
 			   SUN4I_I2S_FIFO_CTRL_TX_MODE_MASK |
 			   SUN4I_I2S_FIFO_CTRL_RX_MODE_MASK,
+#ifdef __MOD_DEVICES__
+			   SUN4I_I2S_FIFO_CTRL_TX_MODE(0) |
+			   SUN4I_I2S_FIFO_CTRL_RX_MODE(0));
+#else
 			   SUN4I_I2S_FIFO_CTRL_TX_MODE(1) |
 			   SUN4I_I2S_FIFO_CTRL_RX_MODE(1));
+#endif
 
 	switch (params_physical_width(params)) {
 	case 16:
@@ -702,6 +707,14 @@ static int sun4i_i2s_set_soc_fmt(const struct sun4i_i2s *i2s,
 
 	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT0_REG,
 			   SUN4I_I2S_FMT0_FMT_MASK, val);
+
+#ifdef __MOD_DEVICES__
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT0_REG,
+			   SUN4I_I2S_FMT0_WSS_MASK, SUN4I_I2S_FMT0_WSS(3)); /* 32bclk */
+
+	regmap_update_bits(i2s->regmap, SUN4I_I2S_FMT0_REG,
+			   SUN4I_I2S_FMT0_SR_MASK, SUN4I_I2S_FMT0_SR(2)); /* 24bit */
+#endif
 
 	/* DAI clock master masks */
 	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
