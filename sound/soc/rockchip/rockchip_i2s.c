@@ -34,6 +34,7 @@ struct rk_i2s_dev {
 
 	struct clk *hclk;
 	struct clk *mclk;
+	struct clk *oclk;
 
 	struct snd_dmaengine_dai_dma_data capture_dma_data;
 	struct snd_dmaengine_dai_dma_data playback_dma_data;
@@ -777,6 +778,15 @@ static int rockchip_i2s_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
+	i2s->oclk = devm_clk_get(&pdev->dev, "i2s_clk_out");
+	if (IS_ERR(i2s->oclk)) {
+		dev_err(&pdev->dev, "Didn't find output clock\n");
+		i2s->oclk = NULL;
+	}
+
+	if (i2s->oclk)
+		ret = clk_prepare_enable(i2s->oclk);
+
 	regs = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(regs)) {
 		ret = PTR_ERR(regs);
@@ -857,6 +867,9 @@ static int rockchip_i2s_remove(struct platform_device *pdev)
 	pm_runtime_disable(&pdev->dev);
 	if (!pm_runtime_status_suspended(&pdev->dev))
 		i2s_runtime_suspend(&pdev->dev);
+
+	if (i2s->oclk)
+		clk_disable_unprepare(i2s->oclk);
 
 	clk_disable_unprepare(i2s->hclk);
 
