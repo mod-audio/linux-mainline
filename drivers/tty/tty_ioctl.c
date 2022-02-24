@@ -796,7 +796,7 @@ int tty_mode_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 	case TCSETX:
 	case TCSETXW:
 	case TCSETXF:
-		return -ENOTTY;
+		return -EINVAL;
 #endif
 	case TIOCGSOFTCAR:
 		copy_termios(real_tty, &kterm);
