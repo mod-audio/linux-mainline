@@ -89,6 +89,18 @@ static irqreturn_t exp_flag_irq_handler(int irq, void *dev_id)
 }
 #endif
 
+static void enable_cpu_counters(void* data)
+{
+	printk("MOD Devices: Enabling user-mode PMU access on CPU #%d\n", smp_processor_id());
+
+	/* Enable user-mode access to counters. */
+	asm volatile("msr PMUSERENR_EL0, %0" :: "r"(1));
+	/* Program PMU and enable all counters */
+	asm volatile("msr PMCR_EL0, %0" :: "r"(23)); // 1|2|4|16
+	asm volatile("msr PMCNTENSET_EL0, %0" :: "r"(0x8000000f));
+	asm volatile("msr PMCCFILTR_EL0, %0" :: "r"(0));
+}
+
 static int moddevices_init(struct i2c_client *i2c_client)
 {
 	int i;
@@ -143,6 +155,9 @@ static int moddevices_init(struct i2c_client *i2c_client)
 	gpiod_set_value(modduox_gpios->gain_stage_right2, 1);
 
 	modduox_gpios->initialized = true;
+
+	// enable user-mode access to counters
+	on_each_cpu(enable_cpu_counters, NULL, 1);
 
 #ifdef _MOD_DEVICE_DUOX
 	modduox_gpios->irqFlag1 = gpiod_to_irq(modduox_gpios->exp_flag1);
