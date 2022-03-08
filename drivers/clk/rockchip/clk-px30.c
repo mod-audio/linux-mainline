@@ -997,6 +997,7 @@ static const char *const px30_cru_critical_clocks[] __initconst = {
 	"clk_uart2",
 	"pclk_uart2",
 	"pclk_usb_grf",
+	"clk_rtc32k_pmu",
 };
 
 static void __init px30_clk_init(struct device_node *np)
