@@ -117,6 +117,7 @@ static void dwc2_set_rk_params(struct dwc2_hsotg *hsotg)
 	p->lpm_clock_gating = false;
 	p->besl = false;
 	p->hird_threshold_en = false;
+	p->g_dma_desc = false;
 }
 
 static void dwc2_set_ltq_params(struct dwc2_hsotg *hsotg)
