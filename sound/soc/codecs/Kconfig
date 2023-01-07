@@ -719,6 +719,11 @@ config SND_SOC_CS4234
 	depends on I2C
 	select REGMAP_I2C
 
+config SND_SOC_CS4245
+	tristate "Cirrus Logic CS4245 CODEC"
+	depends on I2C
+	select REGMAP_I2C
+
 config SND_SOC_CS4265
 	tristate "Cirrus Logic CS4265 CODEC"
 	depends on I2C
