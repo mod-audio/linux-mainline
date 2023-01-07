@@ -125,7 +125,7 @@ static inline void dwc2_gadget_incr_frame_num(struct dwc2_hsotg_ep *hs_ep)
 	if (hs_ep->target_frame > limit) {
 		hs_ep->frame_overrun = true;
 		hs_ep->target_frame &= limit;
-	} else {
+	} else if (hsotg->frame_number < hs_ep->target_frame) {
 		hs_ep->frame_overrun = false;
 	}
 }
