@@ -652,7 +652,7 @@ static struct rockchip_clk_branch px30_clk_branches[] __initdata = {
 			&px30_i2s2_fracmux),
 	GATE(SCLK_I2S2, "clk_i2s2", "clk_i2s2_mux", CLK_SET_RATE_PARENT,
 			PX30_CLKGATE_CON(10), 6, GFLAGS),
-	COMPOSITE_NODIV(0, "clk_i2s2_out_pre", mux_i2s2_out_p, 0,
+	COMPOSITE_NODIV(0, "clk_i2s2_out_pre", mux_i2s2_out_p, CLK_SET_RATE_PARENT,
 			PX30_CLKSEL_CON(32), 15, 1, MFLAGS,
 			PX30_CLKGATE_CON(10), 7, GFLAGS),
 	GATE(SCLK_I2S2_OUT, "clk_i2s2_out", "clk_i2s2_out_pre", CLK_SET_RATE_PARENT,
